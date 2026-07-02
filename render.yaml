@@ -10,6 +10,6 @@ services:
       - key: DJANGO_DEBUG
         value: "False"
       - key: DJANGO_ALLOWED_HOSTS
-        value: ".onrender.com"
+        value: "data-analysis-dashboard-qqn9.onrender.com,.onrender.com"
       - key: DJANGO_SECRET_KEY
         generator: SECRET

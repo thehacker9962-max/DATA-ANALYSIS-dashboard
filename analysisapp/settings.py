@@ -34,6 +34,10 @@ DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
 # Allow configuring hosts via environment variable when deployed (comma-separated).
 allowed_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS', '*')
 ALLOWED_HOSTS = [host.strip() for host in allowed_hosts.split(',') if host.strip()]
+render_external_hostname = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+if render_external_hostname:
+    ALLOWED_HOSTS.append(render_external_hostname)
+ALLOWED_HOSTS += ['data-analysis-dashboard-qqn9.onrender.com', '.onrender.com']
 if DEBUG:
     ALLOWED_HOSTS += ['testserver']
 
@@ -59,6 +63,10 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# This dashboard does not need a database for user accounts or saved records.
+# Cookie sessions avoid SQLite/Postgres storage pressure on free deployments.
+SESSION_ENGINE = 'django.contrib.sessions.backends.signed_cookies'
 
 ROOT_URLCONF = 'analysisapp.urls'
 
