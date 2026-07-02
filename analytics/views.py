@@ -1,6 +1,7 @@
 import json
 import os
 import tempfile
+from datetime import datetime, timezone
 
 from django.http import HttpResponse
 from django.shortcuts import redirect, render
@@ -21,6 +22,33 @@ from .utils import (
     save_dataframe_to_temp,
     save_uploaded_to_disk,
 )
+
+
+def _save_analysis_result_to_mongodb(summary):
+    uri = os.environ.get('MONGODB_URI')
+    if not uri:
+        return
+
+    try:
+        from pymongo import MongoClient
+
+        client = MongoClient(uri, serverSelectionTimeoutMS=3000)
+        db_name = os.environ.get('MONGODB_DB', 'data_analysis_dashboard')
+        client[db_name]['analysis_results'].insert_one(
+            {
+                'created_at': datetime.now(timezone.utc),
+                'row_count': summary.get('row_count'),
+                'column_count': summary.get('column_count'),
+                'quality_score': summary.get('quality_score'),
+                'numeric_columns': summary.get('numeric_columns', []),
+                'categorical_columns': summary.get('categorical_columns', []),
+                'insights': summary.get('insights', []),
+                'prediction': summary.get('prediction'),
+                'trend': summary.get('trend'),
+            }
+        )
+    except Exception:
+        return
 
 
 def _empty_context(form, error_message=""):
@@ -76,7 +104,11 @@ def _remember_dataframe(request, df):
             os.remove(old_path)
         except OSError:
             pass
-    request.session['analysis_file_path'] = save_dataframe_to_temp(df)
+
+    try:
+        request.session['analysis_file_path'] = save_dataframe_to_temp(df)
+    except OSError:
+        request.session.pop('analysis_file_path', None)
 
 
 def dashboard(request):
@@ -127,6 +159,7 @@ def dashboard(request):
                 )
 
         _remember_dataframe(request, summary['cleaned_df'])
+        _save_analysis_result_to_mongodb(summary)
         return render(request, 'analytics/dashboard.html', _analysis_context(form, summary))
 
     file_path = request.session.get('analysis_file_path')
