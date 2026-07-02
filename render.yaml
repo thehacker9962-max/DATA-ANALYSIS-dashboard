@@ -1,17 +1,15 @@
 services:
-  - type: web_service
-    name: analysisapp
+  - type: web
+    name: data-analysis-dashboard
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
-    startCommand: gunicorn analysisapp.wsgi:application --log-file -
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
+    startCommand: "gunicorn analysisapp.wsgi:application --log-file -"
+    healthCheckPath: /
     envVars:
       - key: DJANGO_DEBUG
-        value: 'False'
+        value: "False"
       - key: DJANGO_ALLOWED_HOSTS
-        value: 'your-service.onrender.com'
+        value: ".onrender.com"
       - key: DJANGO_SECRET_KEY
         generator: SECRET
-      - key: DATABASE_URL
-        fromDatabase: your-database-service
-    staticPublishPath: staticfiles

@@ -20,6 +20,8 @@ Django analytics app with CSV/Excel upload, cleaning, KPI cards, charts, export,
    gunicorn analysisapp.wsgi:application --log-file -
    ```
 
+Do not paste `envVars:` into the Render start command. Environment variables must be added in Render's Environment tab, or supplied by `render.yaml` when using Blueprint deploys.
+
 ## Local setup
 
 ```bash
