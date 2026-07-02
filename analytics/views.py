@@ -21,6 +21,7 @@ from .utils import (
     analyze_large_file,
     save_dataframe_to_temp,
     load_dataframe_from_path,
+    make_json_safe,
 )
 
 
@@ -30,9 +31,11 @@ def dashboard(request):
     preview_columns = []
     preview_rows = []
     correlation_preview = ""
+    error_message = ""
 
     if request.method == 'POST' and form.is_valid():
         uploaded_file = request.FILES['csv_file']
+        target_column = form.cleaned_data.get('target_column') or None
         # If file is large, prefer streaming CSV processing; Excel files cannot be streamed reliably
         large_threshold = 50 * 1024 * 1024  # 50 MB
         _, ext = os.path.splitext(uploaded_file.name.lower())
@@ -69,19 +72,23 @@ def dashboard(request):
                 }
                 return render(request, 'analytics/dashboard.html', context)
 
-            # ensure cleaned_df persisted to disk for session
-            if request.session.get('analysis_file_path'):
-                try:
-                    old_path = request.session.get('analysis_file_path')
-                    if old_path and os.path.exists(old_path):
-                        os.remove(old_path)
-                except Exception:
-                    pass
-            file_path = save_dataframe_to_temp(summary['cleaned_df'])
-            request.session['analysis_file_path'] = file_path
         else:
-            df = read_uploaded_file(uploaded_file)
-            summary = analyze_dataframe(df)
+            try:
+                df = read_uploaded_file(uploaded_file)
+                summary = analyze_dataframe(df, target_column)
+            except Exception as e:
+                context = {
+                    'form': form,
+                    'summary': None,
+                    'preview_columns': [],
+                    'preview_rows': [],
+                    'correlation_preview': '',
+                    'chart_data_json': '{}',
+                    'recommendations': [],
+                    'business_metrics': {},
+                    'error_message': f'Failed to analyze file: {e}',
+                }
+                return render(request, 'analytics/dashboard.html', context)
 
         if request.session.get('analysis_file_path'):
             try:
@@ -94,9 +101,9 @@ def dashboard(request):
         file_path = save_dataframe_to_temp(summary['cleaned_df'])
         request.session['analysis_file_path'] = file_path
         request.session['analysis_columns'] = summary['cleaned_df'].columns.tolist()
-        request.session['analysis_preview'] = summary['cleaned_df'].head(10).to_dict(orient='records')
+        request.session['analysis_preview'] = make_json_safe(summary['cleaned_df'].head(10).to_dict(orient='records'))
         request.session['analysis_summary'] = {
-            key: value
+            key: make_json_safe(value)
             for key, value in summary.items()
             if key != 'cleaned_df'
         }
@@ -104,12 +111,13 @@ def dashboard(request):
         preview_columns = request.session['analysis_columns']
         preview_rows = [list(row.values()) for row in request.session['analysis_preview']]
         if summary['correlation']:
-            correlation_preview = json.dumps(summary['correlation'], indent=2)
+            correlation_preview = json.dumps(make_json_safe(summary['correlation']), indent=2)
         chart_data = generate_chart_data(summary['cleaned_df'], summary.get('numeric_columns', []))
+        chart_data = make_json_safe(chart_data)
         chart_data_json = json.dumps(chart_data)
         request.session['analysis_chart_data'] = chart_data
-        request.session['analysis_recommendations'] = generate_recommendations(summary, summary['cleaned_df'], None)
-        request.session['analysis_business_metrics'] = compute_business_metrics(summary, summary['cleaned_df'])
+        request.session['analysis_recommendations'] = make_json_safe(generate_recommendations(summary, summary['cleaned_df'], summary.get('target_column')))
+        request.session['analysis_business_metrics'] = make_json_safe(compute_business_metrics(summary, summary['cleaned_df']))
         recommendations = request.session['analysis_recommendations']
         business_metrics = request.session['analysis_business_metrics']
 
@@ -122,6 +130,8 @@ def dashboard(request):
         chart_data_json = json.dumps(request.session.get('analysis_chart_data', {}))
         recommendations = request.session.get('analysis_recommendations', [])
         business_metrics = request.session.get('analysis_business_metrics', {})
+    elif request.method == 'POST':
+        error_message = "Please choose a valid CSV or Excel file before analyzing."
 
     context = {
         'form': form,
@@ -132,6 +142,7 @@ def dashboard(request):
         'chart_data_json': chart_data_json if 'chart_data_json' in locals() else '{}',
         'recommendations': recommendations if 'recommendations' in locals() else [],
         'business_metrics': business_metrics if 'business_metrics' in locals() else {},
+        'error_message': error_message,
     }
     return render(request, 'analytics/dashboard.html', context)
 

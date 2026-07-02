@@ -10,6 +10,33 @@ from sklearn.metrics import mean_squared_error
 
 from io import BytesIO
 
+
+def make_json_safe(value: Any) -> Any:
+    """Convert pandas/numpy values into JSON/session-safe Python values."""
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return {str(k): make_json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [make_json_safe(v) for v in value]
+    if isinstance(value, tuple):
+        return [make_json_safe(v) for v in value]
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        if np.isnan(value) or np.isinf(value):
+            return None
+        return float(value)
+    if isinstance(value, float):
+        if np.isnan(value) or np.isinf(value):
+            return None
+        return value
+    if isinstance(value, (pd.Timestamp, pd.Timedelta)):
+        return str(value)
+    if pd.isna(value):
+        return None
+    return value
+
 def save_dataframe_to_temp(df: pd.DataFrame, suffix: str = ".pkl") -> str:
     temp_file = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     path = temp_file.name
@@ -35,8 +62,32 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     for col in cleaned.columns:
         if cleaned[col].dtype == "object":
             cleaned[col] = cleaned[col].replace({"": None, "nan": None, "None": None})
+            numeric_candidate = cleaned[col].astype(str).str.replace(",", "", regex=False)
+            converted_numeric = pd.to_numeric(numeric_candidate, errors="coerce")
+            if converted_numeric.notna().mean() >= 0.8:
+                cleaned[col] = converted_numeric
+                continue
+
+            converted_date = pd.to_datetime(cleaned[col], errors="coerce")
+            if converted_date.notna().mean() >= 0.8:
+                cleaned[col] = converted_date
 
     return cleaned
+
+
+def choose_prediction_target(df: pd.DataFrame, target_column: Optional[str] = None) -> Optional[str]:
+    """Return a numeric target column for regression, preferring user and business fields."""
+    numeric_columns = [col for col in df.columns if pd.api.types.is_numeric_dtype(df[col])]
+    if target_column:
+        normalized = target_column.strip().lower().replace(" ", "_")
+        if normalized in numeric_columns:
+            return normalized
+
+    for candidate in ["sales", "revenue", "profit", "amount", "total", "price"]:
+        if candidate in numeric_columns:
+            return candidate
+
+    return numeric_columns[-1] if numeric_columns else None
 
 
 def get_column_profiles(df: pd.DataFrame) -> List[Dict[str, Any]]:
@@ -76,6 +127,7 @@ def analyze_dataframe(df: pd.DataFrame, target_column: Optional[str] = None) -> 
 
     numeric_columns = [col for col in cleaned.columns if pd.api.types.is_numeric_dtype(cleaned[col])]
     categorical_columns = [col for col in cleaned.columns if col not in numeric_columns]
+    target_column = choose_prediction_target(cleaned, target_column)
 
     kpis = {
         "rows": quality["row_count"],
@@ -129,16 +181,20 @@ def analyze_dataframe(df: pd.DataFrame, target_column: Optional[str] = None) -> 
             model_df = cleaned[[target_column] + list(feature_frame.columns)].dropna()
             X = model_df[feature_frame.columns]
             y = model_df[target_column]
-            X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-            model = LinearRegression()
-            model.fit(X_train, y_train)
-            preds = model.predict(X_test)
-            mse = mean_squared_error(y_test, preds)
-            prediction = {
-                "model": "LinearRegression",
-                "mse": round(float(mse), 4),
-                "r2_hint": "Model trained with numeric features.",
-            }
+            if len(model_df) >= 8:
+                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                model = LinearRegression()
+                model.fit(X_train, y_train)
+                preds = model.predict(X_test)
+                mse = mean_squared_error(y_test, preds)
+                prediction = {
+                    "model": "LinearRegression",
+                    "target": target_column,
+                    "features": list(feature_frame.columns)[:8],
+                    "mse": round(float(mse), 4),
+                    "sample_prediction": round(float(preds[0]), 4) if len(preds) else None,
+                    "r2_hint": "Model trained with available numeric features.",
+                }
 
     return {
         "cleaned_df": cleaned,
@@ -151,6 +207,7 @@ def analyze_dataframe(df: pd.DataFrame, target_column: Optional[str] = None) -> 
         "insights": insights,
         "correlation": correlation,
         "prediction": prediction,
+        "target_column": target_column,
         "numeric_columns": numeric_columns,
         "categorical_columns": categorical_columns,
         "chart_data": chart_data,
@@ -264,8 +321,13 @@ def analyze_large_file(path: str, sample_size: int = 2000, chunksize: int = 1000
         correlation = corr.to_dict()
 
     # build summary similar to analyze_dataframe
+    missing_total = sum(nulls.values()) if nulls else 0
+    total_cells = max(total_rows * max(len(cols or []), 1), 1)
+    missing_ratio = missing_total / total_cells
+    quality_score = max(0, min(100, round(100 - (missing_ratio * 100))))
+
     quality = {
-        "quality_score": 100,
+        "quality_score": quality_score,
         "null_values": nulls,
         "duplicate_rows": 0,
         "row_count": int(total_rows),
@@ -298,10 +360,11 @@ def analyze_large_file(path: str, sample_size: int = 2000, chunksize: int = 1000
         "quality_score": quality["quality_score"],
         "column_profiles": get_column_profiles(sample_df),
         "quality_report": quality,
-        "kpis": {"rows": quality["row_count"], "columns": quality["column_count"], "duplicates": 0, "missing_values": sum(nulls.values()), "quality_score": quality["quality_score"]},
+        "kpis": {"rows": quality["row_count"], "columns": quality["column_count"], "duplicates": 0, "missing_values": missing_total, "quality_score": quality["quality_score"]},
         "insights": insights,
         "correlation": correlation,
         "prediction": None,
+        "target_column": None,
         "numeric_columns": numeric_columns,
         "categorical_columns": categorical_columns,
         "chart_data": chart_data,
@@ -388,9 +451,9 @@ def generate_recommendations(summary: Dict[str, Any], df: pd.DataFrame, target: 
     # Trend-based
     trend = summary.get('trend')
     if trend == 'increasing':
-        recs.append('Sales show an increasing trend — consider scaling inventory and marketing to capture demand.')
+        recs.append('The main numeric trend is increasing. Consider scaling inventory, budget, or capacity around the strongest segments.')
     elif trend == 'decreasing':
-        recs.append('Sales are decreasing — investigate recent changes, promotions, pricing, or supply issues.')
+        recs.append('The main numeric trend is decreasing. Investigate pricing, promotions, operational changes, and recent demand shifts.')
     else:
         recs.append('Sales appear stable; run A/B tests on promotions to find uplift opportunities.')
 
@@ -403,7 +466,7 @@ def generate_recommendations(summary: Dict[str, Any], df: pd.DataFrame, target: 
             sorted_feats = sorted(pairs.items(), key=lambda kv: abs(kv[1]), reverse=True)
             top = [f for f, v in sorted_feats if f != target][:3]
             if top:
-                recs.append(f'Features strongly associated with {target}: {", ".join(top)} — consider focusing campaigns on these drivers.')
+                recs.append(f'Features strongly associated with {target}: {", ".join(top)}. Use these as candidate business drivers.')
 
     # Generic actions
     recs.append('Run targeted promotions for top-performing segments and monitor lift.')

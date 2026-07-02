@@ -31,8 +31,11 @@ SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'django-insecure-eho5r_9+zt(vmj
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DJANGO_DEBUG', 'False') == 'True'
 
-# Allow configuring hosts via environment variable when deployed (comma-separated)
-ALLOWED_HOSTS = ('*')
+# Allow configuring hosts via environment variable when deployed (comma-separated).
+allowed_hosts = os.environ.get('DJANGO_ALLOWED_HOSTS', '*')
+ALLOWED_HOSTS = [host.strip() for host in allowed_hosts.split(',') if host.strip()]
+if DEBUG:
+    ALLOWED_HOSTS += ['testserver']
 
 # Application definition
 
@@ -47,8 +50,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -88,7 +91,7 @@ DATABASES = {
 }
 
 DATABASE_URL = os.environ.get('DATABASE_URL')
-if DATABASE_URL:
+if DATABASE_URL and '@host:' not in DATABASE_URL:
     DATABASES['default'] = dj_database_url.parse(DATABASE_URL, conn_max_age=600)
 
 
@@ -136,4 +139,7 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 # Directory to store temporary uploaded files when handling large uploads.
 # Defaults to a workspace-local folder to avoid filling the system temp drive.
-FILE_UPLOAD_TEMP_DIR = str(BASE_DIR / 'tmp_uploads')
+FILE_UPLOAD_TEMP_DIR = os.environ.get('FILE_UPLOAD_TEMP_DIR', str(BASE_DIR / 'tmp_uploads'))
+if not os.path.isabs(FILE_UPLOAD_TEMP_DIR):
+    FILE_UPLOAD_TEMP_DIR = str(BASE_DIR / FILE_UPLOAD_TEMP_DIR)
+os.makedirs(FILE_UPLOAD_TEMP_DIR, exist_ok=True)

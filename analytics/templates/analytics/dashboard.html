@@ -5,192 +5,333 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Data Analysis Dashboard</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 0; background: #f4f7fb; color: #1f2937; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
-        .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.06); margin-bottom: 20px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
-        .kpi { padding: 18px; border-radius: 10px; color: white; }
-        .kpi.blue { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
-        .kpi.green { background: linear-gradient(135deg, #10b981, #047857); }
-        .kpi.orange { background: linear-gradient(135deg, #f59e0b, #d97706); }
-        .kpi.purple { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
-        table { width: 100%; border-collapse: collapse; font-size: 14px; }
-        th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
-        th { background: #f9fafb; }
-        .actions a { margin-right: 10px; color: #2563eb; text-decoration: none; }
-        .insights { line-height: 1.6; }
-        form input, form select { padding: 8px; margin-right: 10px; margin-bottom: 10px; }
-        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-        .chart-card { display: flex; flex-direction: column; min-height: 360px; }
-        .chart-card h4 { margin-bottom: 12px; }
-        .chart-container { position: relative; flex: 1 1 auto; min-height: 260px; }
-        .chart-container canvas { position: absolute; top: 0; left: 0; width: 100% !important; height: 100% !important; }
-        @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+        :root {
+            --ink: #172033;
+            --muted: #637083;
+            --line: #d9e0ea;
+            --panel: #ffffff;
+            --page: #eef3f8;
+            --blue: #2457c5;
+            --green: #0f8a65;
+            --amber: #b96905;
+            --rose: #b42352;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--page);
+            color: var(--ink);
+            font-family: Arial, Helvetica, sans-serif;
+            letter-spacing: 0;
+        }
+        .shell { max-width: 1440px; margin: 0 auto; padding: 24px; }
+        .topbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            padding: 18px 0 22px;
+        }
+        h1, h2, h3, h4, p { margin-top: 0; }
+        h1 { font-size: 30px; margin-bottom: 6px; }
+        h2 { font-size: 20px; margin-bottom: 16px; }
+        h3 { font-size: 16px; margin-bottom: 8px; }
+        .muted { color: var(--muted); margin-bottom: 0; }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 18px;
+            margin-bottom: 18px;
+        }
+        .upload {
+            display: grid;
+            grid-template-columns: minmax(260px, 1fr) auto;
+            gap: 18px;
+            align-items: end;
+        }
+        .upload-fields {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 14px;
+        }
+        form p { margin: 0; }
+        label { display: block; font-weight: 700; font-size: 13px; margin-bottom: 7px; }
+        input[type="file"], input[type="text"] {
+            width: 100%;
+            min-height: 42px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            background: #fff;
+            padding: 9px;
+            color: var(--ink);
+        }
+        .helptext { display: block; margin-top: 6px; color: var(--muted); font-size: 12px; }
+        button, .download-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 42px;
+            border-radius: 6px;
+            border: 1px solid transparent;
+            background: var(--blue);
+            color: #fff;
+            padding: 0 16px;
+            font-weight: 700;
+            text-decoration: none;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .download-link.secondary { background: #fff; color: var(--blue); border-color: var(--blue); }
+        .error {
+            border-left: 4px solid var(--rose);
+            background: #fff5f7;
+            color: #7a1232;
+        }
+        .kpi-grid, .content-grid, .chart-grid {
+            display: grid;
+            gap: 14px;
+        }
+        .kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .content-grid { grid-template-columns: 1.1fr .9fr; }
+        .chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .metric {
+            min-height: 118px;
+            border-radius: 8px;
+            padding: 16px;
+            background: #fff;
+            border: 1px solid var(--line);
+        }
+        .metric strong { display: block; font-size: 28px; margin-top: 14px; }
+        .metric.blue { border-top: 4px solid var(--blue); }
+        .metric.green { border-top: 4px solid var(--green); }
+        .metric.amber { border-top: 4px solid var(--amber); }
+        .metric.rose { border-top: 4px solid var(--rose); }
+        .list { margin: 0; padding-left: 18px; line-height: 1.55; }
+        .downloads { display: flex; flex-wrap: wrap; gap: 10px; }
+        .chart-box { height: 320px; position: relative; }
+        canvas { width: 100% !important; height: 100% !important; }
+        .table-wrap { overflow: auto; max-height: 380px; border: 1px solid var(--line); border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; min-width: 680px; background: #fff; }
+        th, td { border-bottom: 1px solid var(--line); padding: 10px; text-align: left; font-size: 13px; }
+        th { background: #f7f9fc; position: sticky; top: 0; z-index: 1; }
+        pre {
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow: auto;
+            background: #f7f9fc;
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 12px;
+            font-size: 12px;
+        }
+        .pill-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .pill {
+            border: 1px solid var(--line);
+            background: #f7f9fc;
+            color: var(--muted);
+            border-radius: 999px;
+            padding: 7px 10px;
+            font-size: 12px;
+        }
+        @media (max-width: 980px) {
+            .kpi-grid, .content-grid, .chart-grid, .upload { grid-template-columns: 1fr; }
+            .topbar { align-items: flex-start; flex-direction: column; }
+        }
+        @media (max-width: 560px) {
+            .shell { padding: 14px; }
+            h1 { font-size: 24px; }
+            .downloads { display: grid; grid-template-columns: 1fr; }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="card">
-            <h1>Data Analysis Dashboard</h1>
-            <p>Upload a CSV dataset, inspect its profile, clean it, and view automated insights.</p>
-            <form method="post" enctype="multipart/form-data">
+    <main class="shell">
+        <section class="topbar">
+            <div>
+                <h1>Data Analysis Dashboard</h1>
+                <p class="muted">Upload CSV or Excel files, clean them, inspect statistics, visualize trends, train a quick prediction model, and export the cleaned result.</p>
+            </div>
+        </section>
+
+        <section class="panel">
+            <form method="post" enctype="multipart/form-data" class="upload">
                 {% csrf_token %}
-                {{ form.as_p }}
+                <div class="upload-fields">
+                    {{ form.as_p }}
+                </div>
                 <button type="submit">Analyze Dataset</button>
             </form>
-        </div>
+        </section>
+
+        {% if error_message %}
+        <section class="panel error">
+            <strong>Upload error</strong>
+            <p>{{ error_message }}</p>
+        </section>
+        {% endif %}
 
         {% if summary %}
-        <div class="grid">
-            <div class="kpi blue"><h3>Rows</h3><p>{{ summary.kpis.rows }}</p></div>
-            <div class="kpi green"><h3>Columns</h3><p>{{ summary.kpis.columns }}</p></div>
-            <div class="kpi orange"><h3>Missing Values</h3><p>{{ summary.kpis.missing_values }}</p></div>
-            <div class="kpi purple"><h3>Quality Score</h3><p>{{ summary.kpis.quality_score }}%</p></div>
-        </div>
+        <section class="kpi-grid">
+            <div class="metric blue"><span>Rows</span><strong>{{ summary.kpis.rows }}</strong></div>
+            <div class="metric green"><span>Columns</span><strong>{{ summary.kpis.columns }}</strong></div>
+            <div class="metric amber"><span>Missing Values</span><strong>{{ summary.kpis.missing_values }}</strong></div>
+            <div class="metric rose"><span>Quality Score</span><strong>{{ summary.kpis.quality_score }}%</strong></div>
+        </section>
 
-        <div class="card">
-            <h2>Data Quality Report</h2>
-            <div class="two-col">
-                <div>
-                    <p><strong>Duplicates:</strong> {{ summary.quality_report.duplicate_rows }}</p>
-                    <p><strong>Null Values:</strong> {{ summary.quality_report.null_values }}</p>
-                </div>
-                <div class="insights">
-                    {% for insight in summary.insights %}
-                    <div>• {{ insight }}</div>
+        <section class="content-grid">
+            <div class="panel">
+                <h2>Data Quality</h2>
+                <p><strong>Duplicate rows removed:</strong> {{ summary.quality_report.duplicate_rows }}</p>
+                <p><strong>Detected trend:</strong> {{ summary.trend|default:"stable" }}</p>
+                <div class="pill-row">
+                    {% for col in summary.numeric_columns %}
+                    <span class="pill">{{ col }}</span>
+                    {% empty %}
+                    <span class="pill">No numeric columns detected</span>
                     {% endfor %}
                 </div>
             </div>
-        </div>
-
-        <div class="card">
-            <h2>Business KPIs</h2>
-            <div class="grid">
-                <div class="card">
-                    <h4>Sales Rating</h4>
-                    <p style="font-size:20px">{{ business_metrics.sales_rating|default:'N/A' }}</p>
-                    <p><strong>Average Sales:</strong> {{ business_metrics.avg_sales|default:'-' }}</p>
-                </div>
-                <div class="card">
-                    <h4>Product Performance Score</h4>
-                    <p style="font-size:20px">{{ business_metrics.product_performance_score|default:'N/A' }}%</p>
-                    <p><strong>Top Products:</strong></p>
-                    <ul>
-                        {% for p in business_metrics.top_products %}
-                        <li>{{ p.product }} — {{ p.value }}</li>
-                        {% empty %}
-                        <li>No product data detected.</li>
-                        {% endfor %}
-                    </ul>
-                </div>
+            <div class="panel">
+                <h2>Automated Insights</h2>
+                <ul class="list">
+                    {% for insight in summary.insights %}
+                    <li>{{ insight }}</li>
+                    {% empty %}
+                    <li>No automated insights were detected yet.</li>
+                    {% endfor %}
+                </ul>
             </div>
-        </div>
+        </section>
 
-        <div class="card">
-            <h2>Actions & Recommendations</h2>
-            <div class="two-col">
-                <div>
-                    <h4>Recommended Actions</h4>
-                    <ul>
-                        {% for r in recommendations %}
-                        <li>{{ r }}</li>
-                        {% endfor %}
-                    </ul>
-                </div>
-                <div>
-                    <h4>Download Analysis</h4>
-                    <div class="actions">
-                        <a href="{% url 'download_csv' %}">Download CSV</a>
-                        <a href="{% url 'download_excel' %}">Download Excel</a>
-                        <a href="{% url 'download_pdf' %}">Download PDF</a>
-                    </div>
-                </div>
+        <section class="content-grid">
+            <div class="panel">
+                <h2>Business Recommendations</h2>
+                <ul class="list">
+                    {% for r in recommendations %}
+                    <li>{{ r }}</li>
+                    {% endfor %}
+                </ul>
             </div>
-        </div>
-
-        <div class="card">
-            <h2>Trend Insight</h2>
-            <p><strong>Detected trend:</strong> {{ summary.trend|default:"stable" }}</p>
-            {% if summary.chart_data %}
-            <ul>
-                {% for item in summary.chart_data %}
-                <li>{{ item.name }}: {{ item.value }}</li>
-                {% endfor %}
-            </ul>
-            {% endif %}
-        </div>
-
-        <div class="card">
-            <h2>Interactive Insights</h2>
-            <div class="grid">
-                <div class="card chart-card">
-                    <h4>Trend Analysis</h4>
-                    <div class="chart-container">
-                        <canvas id="trendChart"></canvas>
-                    </div>
-                </div>
-                <div class="card chart-card">
-                    <h4>Summary Metrics</h4>
-                    <div class="chart-container">
-                        <canvas id="summaryChart"></canvas>
-                    </div>
-                </div>
+            <div class="panel">
+                <h2>Business KPIs</h2>
+                <p><strong>Sales rating:</strong> {{ business_metrics.sales_rating|default:'N/A' }}</p>
+                <p><strong>Average sales:</strong> {{ business_metrics.avg_sales|default:'-' }}</p>
+                <p><strong>Product performance score:</strong> {{ business_metrics.product_performance_score|default:'N/A' }}%</p>
+                <ul class="list">
+                    {% for p in business_metrics.top_products %}
+                    <li>{{ p.product }}: {{ p.value }}</li>
+                    {% empty %}
+                    <li>No product column and sales column pair was detected.</li>
+                    {% endfor %}
+                </ul>
             </div>
-            <div class="card" style="margin-top: 16px;">
-                <h4>Correlation Matrix</h4>
-                <pre id="correlationOutput">{{ correlation_preview }}</pre>
-            </div>
-        </div>
+        </section>
 
-        <div class="card">
-            <h2>Automated Predictions</h2>
-            {% if summary.prediction %}
+        <section class="chart-grid">
+            <div class="panel">
+                <h2>Trend Visualization</h2>
+                <div class="chart-box"><canvas id="trendChart"></canvas></div>
+            </div>
+            <div class="panel">
+                <h2>Numeric Averages</h2>
+                <div class="chart-box"><canvas id="summaryChart"></canvas></div>
+            </div>
+        </section>
+
+        <section class="content-grid">
+            <div class="panel">
+                <h2>Predictive Analytics</h2>
+                {% if summary.prediction %}
                 <p><strong>Model:</strong> {{ summary.prediction.model }}</p>
-                <p><strong>MSE:</strong> {{ summary.prediction.mse }}</p>
-                <p>{{ summary.prediction.r2_hint }}</p>
-            {% else %}
-                <p>Automated predictions will be generated when numeric predictors are available.</p>
-            {% endif %}
-        </div>
+                <p><strong>Target:</strong> {{ summary.prediction.target }}</p>
+                <p><strong>Mean squared error:</strong> {{ summary.prediction.mse }}</p>
+                <p><strong>Sample prediction:</strong> {{ summary.prediction.sample_prediction }}</p>
+                <div class="pill-row">
+                    {% for feature in summary.prediction.features %}
+                    <span class="pill">{{ feature }}</span>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="muted">Prediction needs at least one numeric target and enough numeric feature rows. Try entering a numeric target column such as sales, revenue, amount, profit, or total.</p>
+                {% endif %}
+            </div>
+            <div class="panel">
+                <h2>Export Cleaned Data</h2>
+                <div class="downloads">
+                    <a class="download-link" href="{% url 'download_csv' %}">Download CSV</a>
+                    <a class="download-link secondary" href="{% url 'download_excel' %}">Download Excel</a>
+                    <a class="download-link secondary" href="{% url 'download_pdf' %}">Download PDF</a>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>Cleaned Data Preview</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            {% for col in preview_columns %}
+                            <th>{{ col }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in preview_rows %}
+                        <tr>
+                            {% for cell in row %}
+                            <td>{{ cell }}</td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>Correlation Matrix</h2>
+            <pre>{{ correlation_preview|default:"No correlation matrix available." }}</pre>
+        </section>
         {% endif %}
-    </div>
+    </main>
+
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         const chartData = {{ chart_data_json|safe }};
-        if (chartData.trend) {
-            const ctx = document.getElementById('trendChart').getContext('2d');
-            new Chart(ctx, {
-                type: chartData.trend.type,
-                data: {
-                    labels: chartData.trend.labels,
-                    datasets: chartData.trend.datasets,
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        x: { display: true },
-                        y: { display: true },
-                    },
-                },
-            });
+
+        function showEmptyChart(canvasId, label) {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            ctx.font = '14px Arial';
+            ctx.fillStyle = '#637083';
+            ctx.fillText(label, 16, 32);
         }
+
+        if (chartData.trend) {
+            new Chart(document.getElementById('trendChart'), {
+                type: chartData.trend.type,
+                data: { labels: chartData.trend.labels, datasets: chartData.trend.datasets },
+                options: { responsive: true, maintainAspectRatio: false }
+            });
+        } else {
+            showEmptyChart('trendChart', 'Upload numeric data to show a trend chart.');
+        }
+
         if (chartData.summary) {
-            const ctx = document.getElementById('summaryChart').getContext('2d');
-            new Chart(ctx, {
+            new Chart(document.getElementById('summaryChart'), {
                 type: chartData.summary.type,
-                data: {
-                    labels: chartData.summary.labels,
-                    datasets: chartData.summary.datasets,
-                },
+                data: { labels: chartData.summary.labels, datasets: chartData.summary.datasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
-                    scales: {
-                        y: { beginAtZero: true },
-                    },
-                },
+                    scales: { y: { beginAtZero: true } }
+                }
             });
+        } else {
+            showEmptyChart('summaryChart', 'Upload numeric data to compare averages.');
         }
     </script>
 </body>
