@@ -1,0 +1,17 @@
+services:
+  - type: web_service
+    name: analysisapp
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput
+    startCommand: gunicorn analysisapp.wsgi:application --log-file -
+    envVars:
+      - key: DJANGO_DEBUG
+        value: 'False'
+      - key: DJANGO_ALLOWED_HOSTS
+        value: 'your-service.onrender.com'
+      - key: DJANGO_SECRET_KEY
+        generator: SECRET
+      - key: DATABASE_URL
+        fromDatabase: your-database-service
+    staticPublishPath: staticfiles

@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Analysis Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; background: #f4f7fb; color: #1f2937; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+        .card { background: white; border-radius: 12px; padding: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.06); margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
+        .kpi { padding: 18px; border-radius: 10px; color: white; }
+        .kpi.blue { background: linear-gradient(135deg, #2563eb, #1d4ed8); }
+        .kpi.green { background: linear-gradient(135deg, #10b981, #047857); }
+        .kpi.orange { background: linear-gradient(135deg, #f59e0b, #d97706); }
+        .kpi.purple { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { border: 1px solid #e5e7eb; padding: 8px; text-align: left; }
+        th { background: #f9fafb; }
+        .actions a { margin-right: 10px; color: #2563eb; text-decoration: none; }
+        .insights { line-height: 1.6; }
+        form input, form select { padding: 8px; margin-right: 10px; margin-bottom: 10px; }
+        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .chart-card { display: flex; flex-direction: column; min-height: 360px; }
+        .chart-card h4 { margin-bottom: 12px; }
+        .chart-container { position: relative; flex: 1 1 auto; min-height: 260px; }
+        .chart-container canvas { position: absolute; top: 0; left: 0; width: 100% !important; height: 100% !important; }
+        @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>Data Analysis Dashboard</h1>
+            <p>Upload a CSV dataset, inspect its profile, clean it, and view automated insights.</p>
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                {{ form.as_p }}
+                <button type="submit">Analyze Dataset</button>
+            </form>
+        </div>
+
+        {% if summary %}
+        <div class="grid">
+            <div class="kpi blue"><h3>Rows</h3><p>{{ summary.kpis.rows }}</p></div>
+            <div class="kpi green"><h3>Columns</h3><p>{{ summary.kpis.columns }}</p></div>
+            <div class="kpi orange"><h3>Missing Values</h3><p>{{ summary.kpis.missing_values }}</p></div>
+            <div class="kpi purple"><h3>Quality Score</h3><p>{{ summary.kpis.quality_score }}%</p></div>
+        </div>
+
+        <div class="card">
+            <h2>Data Quality Report</h2>
+            <div class="two-col">
+                <div>
+                    <p><strong>Duplicates:</strong> {{ summary.quality_report.duplicate_rows }}</p>
+                    <p><strong>Null Values:</strong> {{ summary.quality_report.null_values }}</p>
+                </div>
+                <div class="insights">
+                    {% for insight in summary.insights %}
+                    <div>• {{ insight }}</div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Business KPIs</h2>
+            <div class="grid">
+                <div class="card">
+                    <h4>Sales Rating</h4>
+                    <p style="font-size:20px">{{ business_metrics.sales_rating|default:'N/A' }}</p>
+                    <p><strong>Average Sales:</strong> {{ business_metrics.avg_sales|default:'-' }}</p>
+                </div>
+                <div class="card">
+                    <h4>Product Performance Score</h4>
+                    <p style="font-size:20px">{{ business_metrics.product_performance_score|default:'N/A' }}%</p>
+                    <p><strong>Top Products:</strong></p>
+                    <ul>
+                        {% for p in business_metrics.top_products %}
+                        <li>{{ p.product }} — {{ p.value }}</li>
+                        {% empty %}
+                        <li>No product data detected.</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Actions & Recommendations</h2>
+            <div class="two-col">
+                <div>
+                    <h4>Recommended Actions</h4>
+                    <ul>
+                        {% for r in recommendations %}
+                        <li>{{ r }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                <div>
+                    <h4>Download Analysis</h4>
+                    <div class="actions">
+                        <a href="{% url 'download_csv' %}">Download CSV</a>
+                        <a href="{% url 'download_excel' %}">Download Excel</a>
+                        <a href="{% url 'download_pdf' %}">Download PDF</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Trend Insight</h2>
+            <p><strong>Detected trend:</strong> {{ summary.trend|default:"stable" }}</p>
+            {% if summary.chart_data %}
+            <ul>
+                {% for item in summary.chart_data %}
+                <li>{{ item.name }}: {{ item.value }}</li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+
+        <div class="card">
+            <h2>Interactive Insights</h2>
+            <div class="grid">
+                <div class="card chart-card">
+                    <h4>Trend Analysis</h4>
+                    <div class="chart-container">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+                <div class="card chart-card">
+                    <h4>Summary Metrics</h4>
+                    <div class="chart-container">
+                        <canvas id="summaryChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            <div class="card" style="margin-top: 16px;">
+                <h4>Correlation Matrix</h4>
+                <pre id="correlationOutput">{{ correlation_preview }}</pre>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Automated Predictions</h2>
+            {% if summary.prediction %}
+                <p><strong>Model:</strong> {{ summary.prediction.model }}</p>
+                <p><strong>MSE:</strong> {{ summary.prediction.mse }}</p>
+                <p>{{ summary.prediction.r2_hint }}</p>
+            {% else %}
+                <p>Automated predictions will be generated when numeric predictors are available.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+        const chartData = {{ chart_data_json|safe }};
+        if (chartData.trend) {
+            const ctx = document.getElementById('trendChart').getContext('2d');
+            new Chart(ctx, {
+                type: chartData.trend.type,
+                data: {
+                    labels: chartData.trend.labels,
+                    datasets: chartData.trend.datasets,
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { display: true },
+                        y: { display: true },
+                    },
+                },
+            });
+        }
+        if (chartData.summary) {
+            const ctx = document.getElementById('summaryChart').getContext('2d');
+            new Chart(ctx, {
+                type: chartData.summary.type,
+                data: {
+                    labels: chartData.summary.labels,
+                    datasets: chartData.summary.datasets,
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true },
+                    },
+                },
+            });
+        }
+    </script>
+</body>
+</html>
