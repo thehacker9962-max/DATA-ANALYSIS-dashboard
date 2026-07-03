@@ -258,11 +258,15 @@
             </div>
             <div class="panel">
                 <h2>Export Cleaned Data</h2>
+                {% if downloads_available %}
                 <div class="downloads">
                     <a class="download-link" href="{% url 'download_csv' %}">Download CSV</a>
                     <a class="download-link secondary" href="{% url 'download_excel' %}">Download Excel</a>
                     <a class="download-link secondary" href="{% url 'download_pdf' %}">Download PDF</a>
                 </div>
+                {% else %}
+                <p class="muted">No-storage mode is enabled. Uploaded files are analyzed in memory for this page only and are cleared when you upload another file or refresh later.</p>
+                {% endif %}
             </div>
         </section>
 

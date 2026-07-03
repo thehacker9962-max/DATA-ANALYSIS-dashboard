@@ -1,54 +1,17 @@
 import json
 import os
-import tempfile
-from datetime import datetime, timezone
 
-from django.http import HttpResponse
 from django.shortcuts import redirect, render
 
 from .forms import UploadCSVForm
 from .utils import (
     analyze_dataframe,
-    analyze_large_file,
     compute_business_metrics,
-    dataframe_to_csv,
-    dataframe_to_excel,
-    dataframe_to_pdf,
     generate_chart_data,
     generate_recommendations,
-    load_dataframe_from_path,
     make_json_safe,
     read_uploaded_file,
-    save_dataframe_to_temp,
-    save_uploaded_to_disk,
 )
-
-
-def _save_analysis_result_to_mongodb(summary):
-    uri = os.environ.get('MONGODB_URI')
-    if not uri:
-        return
-
-    try:
-        from pymongo import MongoClient
-
-        client = MongoClient(uri, serverSelectionTimeoutMS=3000)
-        db_name = os.environ.get('MONGODB_DB', 'data_analysis_dashboard')
-        client[db_name]['analysis_results'].insert_one(
-            {
-                'created_at': datetime.now(timezone.utc),
-                'row_count': summary.get('row_count'),
-                'column_count': summary.get('column_count'),
-                'quality_score': summary.get('quality_score'),
-                'numeric_columns': summary.get('numeric_columns', []),
-                'categorical_columns': summary.get('categorical_columns', []),
-                'insights': summary.get('insights', []),
-                'prediction': summary.get('prediction'),
-                'trend': summary.get('trend'),
-            }
-        )
-    except Exception:
-        return
 
 
 def _empty_context(form, error_message=""):
@@ -62,6 +25,7 @@ def _empty_context(form, error_message=""):
         'recommendations': [],
         'business_metrics': {},
         'error_message': error_message,
+        'downloads_available': False,
     }
 
 
@@ -94,21 +58,8 @@ def _analysis_context(form, summary):
         'recommendations': recommendations,
         'business_metrics': business_metrics,
         'error_message': '',
+        'downloads_available': False,
     }
-
-
-def _remember_dataframe(request, df):
-    old_path = request.session.get('analysis_file_path')
-    if old_path and os.path.exists(old_path):
-        try:
-            os.remove(old_path)
-        except OSError:
-            pass
-
-    try:
-        request.session['analysis_file_path'] = save_dataframe_to_temp(df)
-    except OSError:
-        request.session.pop('analysis_file_path', None)
 
 
 def dashboard(request):
@@ -138,15 +89,14 @@ def dashboard(request):
                     ),
                 )
 
-            try:
-                disk_path = save_uploaded_to_disk(uploaded_file)
-                summary = analyze_large_file(disk_path)
-            except Exception as exc:
-                return render(
-                    request,
-                    'analytics/dashboard.html',
-                    _empty_context(form, f'Failed to analyze large file: {exc}'),
-                )
+            return render(
+                request,
+                'analytics/dashboard.html',
+                _empty_context(
+                    form,
+                    'This deployment is in no-storage mode. Please upload a CSV under 50 MB, or split a larger file before analyzing.',
+                ),
+            )
         else:
             try:
                 df = read_uploaded_file(uploaded_file)
@@ -158,66 +108,18 @@ def dashboard(request):
                     _empty_context(form, f'Failed to analyze file: {exc}'),
                 )
 
-        _remember_dataframe(request, summary['cleaned_df'])
-        _save_analysis_result_to_mongodb(summary)
         return render(request, 'analytics/dashboard.html', _analysis_context(form, summary))
-
-    file_path = request.session.get('analysis_file_path')
-    if file_path:
-        try:
-            df = load_dataframe_from_path(file_path)
-            summary = analyze_dataframe(df)
-            return render(request, 'analytics/dashboard.html', _analysis_context(form, summary))
-        except Exception:
-            request.session.pop('analysis_file_path', None)
 
     return render(request, 'analytics/dashboard.html', _empty_context(form))
 
 
-def _get_session_dataframe(request):
-    file_path = request.session.get('analysis_file_path')
-    if not file_path or not os.path.exists(file_path):
-        return None
-    return load_dataframe_from_path(file_path)
-
-
 def download_csv(request):
-    df = _get_session_dataframe(request)
-    if df is None:
-        return redirect('dashboard')
-    temp_path = tempfile.NamedTemporaryFile(suffix='.csv', delete=False).name
-    dataframe_to_csv(df, temp_path)
-    with open(temp_path, 'rb') as fh:
-        response = HttpResponse(fh.read(), content_type='text/csv')
-        response['Content-Disposition'] = 'attachment; filename="analysis.csv"'
-    os.remove(temp_path)
-    return response
+    return redirect('dashboard')
 
 
 def download_excel(request):
-    df = _get_session_dataframe(request)
-    if df is None:
-        return redirect('dashboard')
-    temp_path = tempfile.NamedTemporaryFile(suffix='.xlsx', delete=False).name
-    dataframe_to_excel(df, temp_path)
-    with open(temp_path, 'rb') as fh:
-        response = HttpResponse(
-            fh.read(),
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        )
-        response['Content-Disposition'] = 'attachment; filename="analysis.xlsx"'
-    os.remove(temp_path)
-    return response
+    return redirect('dashboard')
 
 
 def download_pdf(request):
-    df = _get_session_dataframe(request)
-    if df is None:
-        return redirect('dashboard')
-    temp_path = tempfile.NamedTemporaryFile(suffix='.pdf', delete=False).name
-    dataframe_to_pdf(df, temp_path)
-    with open(temp_path, 'rb') as fh:
-        response = HttpResponse(fh.read(), content_type='application/pdf')
-        response['Content-Disposition'] = 'attachment; filename="analysis.pdf"'
-    os.remove(temp_path)
-    return response
+    return redirect('dashboard')

@@ -13,7 +13,3 @@ services:
         value: "data-analysis-dashboard-qqn9.onrender.com,.onrender.com"
       - key: DJANGO_SECRET_KEY
         generator: SECRET
-      - key: MONGODB_URI
-        sync: false
-      - key: MONGODB_DB
-        value: "data_analysis_dashboard"
