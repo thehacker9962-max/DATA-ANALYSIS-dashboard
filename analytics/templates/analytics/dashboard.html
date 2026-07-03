@@ -134,6 +134,52 @@
             padding: 7px 10px;
             font-size: 12px;
         }
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(10, 16, 28, 0.72);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            padding: 20px;
+        }
+        .loading-overlay.hidden { display: none; }
+        .loading-card {
+            width: min(420px, 100%);
+            background: #fff;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 20px 50px rgba(15, 23, 42, 0.2);
+            text-align: center;
+        }
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: 4px solid #dbe4f0;
+            border-top-color: var(--blue);
+            animation: spin 0.9s linear infinite;
+            margin: 0 auto 16px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 10px;
+            border-radius: 999px;
+            background: #edf2f7;
+            overflow: hidden;
+            margin: 16px 0 10px;
+        }
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, var(--blue), var(--green));
+            transition: width 0.25s ease;
+        }
+        .loading-step { color: var(--muted); font-size: 14px; min-height: 22px; }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
         @media (max-width: 980px) {
             .kpi-grid, .content-grid, .chart-grid, .upload { grid-template-columns: 1fr; }
             .topbar { align-items: flex-start; flex-direction: column; }
@@ -146,16 +192,28 @@
     </style>
 </head>
 <body>
+    <div id="loadingOverlay" class="loading-overlay hidden" aria-live="polite" aria-label="Analyzing dataset">
+        <div class="loading-card">
+            <div class="spinner"></div>
+            <h3>Analyzing your dataset</h3>
+            <p class="muted">Please wait while the dashboard cleans the data, detects patterns, and prepares recommendations.</p>
+            <div class="progress-bar">
+                <div id="progressFill" class="progress-fill"></div>
+            </div>
+            <div id="loadingStep" class="loading-step">Preparing upload…</div>
+        </div>
+    </div>
+
     <main class="shell">
         <section class="topbar">
             <div>
                 <h1>Data Analysis Dashboard</h1>
-                <p class="muted">Upload CSV or Excel files, clean them, inspect statistics, visualize trends, train a quick prediction model, and export the cleaned result.</p>
+                <p class="muted">Upload any CSV or Excel file to get instant insights, visualizations, and business recommendations that explain what to improve.</p>
             </div>
         </section>
 
         <section class="panel">
-            <form method="post" enctype="multipart/form-data" class="upload">
+            <form id="analysisForm" method="post" enctype="multipart/form-data" class="upload">
                 {% csrf_token %}
                 <div class="upload-fields">
                     {{ form.as_p }}
@@ -206,6 +264,16 @@
 
         <section class="content-grid">
             <div class="panel">
+                <h2>Key Weaknesses</h2>
+                <ul class="list">
+                    {% for weakness in summary.weaknesses %}
+                    <li>{{ weakness }}</li>
+                    {% empty %}
+                    <li>No material weaknesses were detected.</li>
+                    {% endfor %}
+                </ul>
+            </div>
+            <div class="panel">
                 <h2>Business Recommendations</h2>
                 <ul class="list">
                     {% for r in recommendations %}
@@ -213,17 +281,22 @@
                     {% endfor %}
                 </ul>
             </div>
+        </section>
+
+        <section class="content-grid">
             <div class="panel">
-                <h2>Business KPIs</h2>
-                <p><strong>Sales rating:</strong> {{ business_metrics.sales_rating|default:'N/A' }}</p>
-                <p><strong>Average sales:</strong> {{ business_metrics.avg_sales|default:'-' }}</p>
-                <p><strong>Product performance score:</strong> {{ business_metrics.product_performance_score|default:'N/A' }}%</p>
+                <h2>Business Focus</h2>
+                <p><strong>Detected business columns:</strong> {{ summary.numeric_columns|join:", " }}</p>
+                <p><strong>Suggested priority:</strong> improve data quality first, then review the main sales-driving segments and pricing strategy.</p>
                 <ul class="list">
-                    {% for p in business_metrics.top_products %}
-                    <li>{{ p.product }}: {{ p.value }}</li>
-                    {% empty %}
-                    <li>No product column and sales column pair was detected.</li>
-                    {% endfor %}
+                    {% if business_metrics.avg_sales is not None %}
+                    <li>Average sales value detected: {{ business_metrics.avg_sales }}</li>
+                    {% endif %}
+                    {% if business_metrics.top_products %}
+                    <li>Top products to review: {% for p in business_metrics.top_products %}{{ p.product }}{% if not forloop.last %}, {% endif %}{% endfor %}</li>
+                    {% else %}
+                    <li>No product-based sales pattern was detected yet.</li>
+                    {% endif %}
                 </ul>
             </div>
         </section>
@@ -236,37 +309,6 @@
             <div class="panel">
                 <h2>Numeric Averages</h2>
                 <div class="chart-box"><canvas id="summaryChart"></canvas></div>
-            </div>
-        </section>
-
-        <section class="content-grid">
-            <div class="panel">
-                <h2>Predictive Analytics</h2>
-                {% if summary.prediction %}
-                <p><strong>Model:</strong> {{ summary.prediction.model }}</p>
-                <p><strong>Target:</strong> {{ summary.prediction.target }}</p>
-                <p><strong>Mean squared error:</strong> {{ summary.prediction.mse }}</p>
-                <p><strong>Sample prediction:</strong> {{ summary.prediction.sample_prediction }}</p>
-                <div class="pill-row">
-                    {% for feature in summary.prediction.features %}
-                    <span class="pill">{{ feature }}</span>
-                    {% endfor %}
-                </div>
-                {% else %}
-                <p class="muted">Prediction needs at least one numeric target and enough numeric feature rows. Try entering a numeric target column such as sales, revenue, amount, profit, or total.</p>
-                {% endif %}
-            </div>
-            <div class="panel">
-                <h2>Export Cleaned Data</h2>
-                {% if downloads_available %}
-                <div class="downloads">
-                    <a class="download-link" href="{% url 'download_csv' %}">Download CSV</a>
-                    <a class="download-link secondary" href="{% url 'download_excel' %}">Download Excel</a>
-                    <a class="download-link secondary" href="{% url 'download_pdf' %}">Download PDF</a>
-                </div>
-                {% else %}
-                <p class="muted">No-storage mode is enabled. Uploaded files are analyzed in memory for this page only and are cleared when you upload another file or refresh later.</p>
-                {% endif %}
             </div>
         </section>
 
@@ -304,6 +346,45 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         const chartData = {{ chart_data_json|safe }};
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const progressFill = document.getElementById('progressFill');
+        const loadingStep = document.getElementById('loadingStep');
+        const analysisForm = document.getElementById('analysisForm');
+        const submitButton = analysisForm ? analysisForm.querySelector('button[type="submit"]') : null;
+        const steps = [
+            'Preparing upload…',
+            'Reading file…',
+            'Cleaning data…',
+            'Detecting patterns…',
+            'Generating recommendations…',
+            'Rendering dashboard…'
+        ];
+
+        function showLoading() {
+            if (!loadingOverlay || !analysisForm) return;
+            loadingOverlay.classList.remove('hidden');
+            if (submitButton) {
+                submitButton.disabled = true;
+                submitButton.textContent = 'Analyzing…';
+            }
+            let progress = 0;
+            let stepIndex = 0;
+            const timer = setInterval(() => {
+                progress = Math.min(progress + Math.floor(Math.random() * 16) + 8, 95);
+                progressFill.style.width = `${progress}%`;
+                if (stepIndex < steps.length) {
+                    loadingStep.textContent = steps[stepIndex];
+                    stepIndex += 1;
+                }
+                if (progress >= 95) {
+                    clearInterval(timer);
+                }
+            }, 450);
+        }
+
+        if (analysisForm) {
+            analysisForm.addEventListener('submit', showLoading);
+        }
 
         function showEmptyChart(canvasId, label) {
             const canvas = document.getElementById(canvasId);

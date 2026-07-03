@@ -39,7 +39,7 @@ def _analysis_context(form, summary):
 
     chart_data = make_json_safe(generate_chart_data(cleaned_df, summary.get('numeric_columns', [])))
     recommendations = make_json_safe(
-        generate_recommendations(summary, cleaned_df, summary.get('target_column'))
+        summary.get('recommendations') or generate_recommendations(summary, cleaned_df, summary.get('target_column'))
     )
     business_metrics = make_json_safe(compute_business_metrics(summary, cleaned_df))
     safe_summary = {

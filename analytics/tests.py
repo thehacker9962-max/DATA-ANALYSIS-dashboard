@@ -26,6 +26,22 @@ class AnalyzeDataframeTests(SimpleTestCase):
         self.assertIn("insights", summary)
         self.assertIn("kpis", summary)
 
+    def test_analyze_dataframe_exposes_weakness_analysis(self):
+        df = pd.DataFrame(
+            {
+                "Product": ["A", "A", "B"],
+                "Sales": [100, None, 120],
+                "Region": ["North", "South", "North"],
+            }
+        )
+
+        summary = analyze_dataframe(df, "Sales")
+
+        self.assertIn("weaknesses", summary)
+        self.assertGreaterEqual(len(summary["weaknesses"]), 1)
+        self.assertIn("recommendations", summary)
+        self.assertGreaterEqual(len(summary["recommendations"]), 1)
+
 
 class DashboardViewTests(TestCase):
     def setUp(self):

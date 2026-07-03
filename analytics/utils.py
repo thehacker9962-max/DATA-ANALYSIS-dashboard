@@ -64,7 +64,7 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             cleaned[col] = cleaned[col].replace({"": None, "nan": None, "None": None})
             numeric_candidate = cleaned[col].astype(str).str.replace(",", "", regex=False)
             converted_numeric = pd.to_numeric(numeric_candidate, errors="coerce")
-            if converted_numeric.notna().mean() >= 0.8:
+            if converted_numeric.notna().mean() >= 0.6:
                 cleaned[col] = converted_numeric
                 continue
 
@@ -196,6 +196,34 @@ def analyze_dataframe(df: pd.DataFrame, target_column: Optional[str] = None) -> 
                     "r2_hint": "Model trained with available numeric features.",
                 }
 
+    weaknesses = detect_dataset_weaknesses(
+        {
+            "quality_report": quality,
+            "numeric_columns": numeric_columns,
+            "categorical_columns": categorical_columns,
+            "trend": trend,
+            "correlation": correlation,
+            "quality_score": quality["quality_score"],
+            "target_column": target_column,
+        },
+        cleaned,
+        target_column,
+    )
+    recommendations = generate_recommendations(
+        {
+            "quality_report": quality,
+            "numeric_columns": numeric_columns,
+            "categorical_columns": categorical_columns,
+            "trend": trend,
+            "correlation": correlation,
+            "quality_score": quality["quality_score"],
+            "target_column": target_column,
+            "weaknesses": weaknesses,
+        },
+        cleaned,
+        target_column,
+    )
+
     return {
         "cleaned_df": cleaned,
         "row_count": quality["row_count"],
@@ -212,6 +240,8 @@ def analyze_dataframe(df: pd.DataFrame, target_column: Optional[str] = None) -> 
         "categorical_columns": categorical_columns,
         "chart_data": chart_data,
         "trend": trend,
+        "weaknesses": weaknesses,
+        "recommendations": recommendations,
     }
 
 
@@ -438,8 +468,68 @@ def generate_chart_data(df: pd.DataFrame, numeric_columns: List[str]) -> Dict[st
 
     return chart_data
 
+def detect_dataset_weaknesses(summary: Dict[str, Any], df: pd.DataFrame, target: Optional[str] = None) -> List[str]:
+    weaknesses: List[str] = []
+    q = summary.get('quality_report', {})
+    if q.get('duplicate_rows', 0) > 0:
+        weaknesses.append('Duplicate rows are present and can distort the analysis.')
+
+    null_values = sum(q.get('null_values', {}).values()) if q.get('null_values') else 0
+    if null_values > 0:
+        null_columns = [name for name, count in q.get('null_values', {}).items() if count]
+        if null_columns:
+            weaknesses.append(f'Missing values were found in {", ".join(null_columns[:5])}.')
+
+    if not summary.get('numeric_columns'):
+        weaknesses.append('No numeric columns were detected, which limits trend and forecasting analysis.')
+    elif not target or target not in summary.get('numeric_columns', []):
+        weaknesses.append('A clear numeric target column was not identified, so predictive modeling may be weak.')
+
+    trend = summary.get('trend')
+    if trend == 'decreasing':
+        weaknesses.append('The main metric is trending downward, suggesting a performance decline that needs investigation.')
+    elif trend == 'stable':
+        weaknesses.append('The main metric is flat, so the dataset may need segmentation or stronger driver variables to reveal opportunities.')
+
+    if summary.get('quality_score', 100) < 70:
+        weaknesses.append('Overall data quality is below the threshold needed for confident business decisions.')
+
+    if not summary.get('correlation'):
+        weaknesses.append('The correlation structure is weak or unavailable, so the key business drivers are not yet clear.')
+
+    return weaknesses
+
+
 def generate_recommendations(summary: Dict[str, Any], df: pd.DataFrame, target: Optional[str] = None) -> List[str]:
     recs: List[str] = []
+    weaknesses = summary.get('weaknesses', []) or detect_dataset_weaknesses(summary, df, target)
+
+    business_columns = [col for col in ["sales", "revenue", "profit", "amount", "total", "price"] if col in df.columns]
+    if business_columns:
+        recs.append(f'Use {", ".join(business_columns[:3])} as the primary business KPI to guide decisions and monitor performance.')
+
+    if any('Missing values' in weakness for weakness in weaknesses):
+        recs.append('Fill missing values with a business-safe default or remove incomplete rows before drawing conclusions.')
+    if any('Duplicate rows' in weakness for weakness in weaknesses):
+        recs.append('Remove duplicate records so summaries and forecasts reflect the true business pattern.')
+    if any('No numeric columns' in weakness for weakness in weaknesses):
+        recs.append('Convert the key business fields to numeric values to unlock trend charts and actionable insights.')
+    if any('clear numeric target' in weakness for weakness in weaknesses):
+        recs.append('Choose a numeric outcome column such as sales, revenue, profit, or amount to improve forecasting quality.')
+    if any('trending downward' in weakness for weakness in weaknesses):
+        recs.append('Review pricing, promotions, and segment mix to recover sales momentum and stop the decline.')
+    if any('flat' in weakness for weakness in weaknesses):
+        recs.append('Segment the data by product, region, or customer group and test promotions to uncover hidden growth opportunities.')
+    if any('quality is below' in weakness for weakness in weaknesses):
+        recs.append('Clean and standardize the dataset before making operational decisions from the report.')
+    if any('correlation structure' in weakness for weakness in weaknesses):
+        recs.append('Add richer driver variables such as price, discount, seasonality, or marketing spend to improve explanation.')
+
+    if any(col in df.columns for col in ['product', 'product_name', 'sku']) and any(col in df.columns for col in ['sales', 'revenue', 'amount', 'total']):
+        recs.append('Analyze sales by product category and focus promotions on the segments that generate the highest value.')
+    if any(col in df.columns for col in ['region', 'city', 'country']) and any(col in df.columns for col in ['sales', 'revenue', 'amount', 'total']):
+        recs.append('Compare regional performance to identify where sales growth or losses are concentrated.')
+
     # Quality-based recommendations
     q = summary.get('quality_report', {})
     if q.get('duplicate_rows', 0) > 0:
@@ -460,7 +550,6 @@ def generate_recommendations(summary: Dict[str, Any], df: pd.DataFrame, target: 
     # Correlation-based suggestions
     corr = summary.get('correlation')
     if isinstance(corr, dict) and target:
-        # find features most correlated with target
         if target in corr:
             pairs = corr[target]
             sorted_feats = sorted(pairs.items(), key=lambda kv: abs(kv[1]), reverse=True)
@@ -469,7 +558,8 @@ def generate_recommendations(summary: Dict[str, Any], df: pd.DataFrame, target: 
                 recs.append(f'Features strongly associated with {target}: {", ".join(top)}. Use these as candidate business drivers.')
 
     # Generic actions
-    recs.append('Run targeted promotions for top-performing segments and monitor lift.')
+    if not recs:
+        recs.append('Run targeted promotions for top-performing segments and monitor lift.')
     recs.append('Use top correlated numeric features as candidate predictors for forecasting models.')
 
     return recs
