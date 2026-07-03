@@ -382,6 +382,22 @@
             }, 450);
         }
 
+        window.addEventListener('load', () => {
+            if (loadingOverlay) {
+                loadingOverlay.classList.add('hidden');
+            }
+            if (submitButton) {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Analyze Dataset';
+            }
+            if (progressFill) {
+                progressFill.style.width = '0%';
+            }
+            if (loadingStep) {
+                loadingStep.textContent = 'Preparing upload…';
+            }
+        });
+
         if (analysisForm) {
             analysisForm.addEventListener('submit', showLoading);
         }
