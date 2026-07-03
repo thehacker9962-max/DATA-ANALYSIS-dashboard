@@ -73,42 +73,48 @@ def dashboard(request):
         )
 
     if request.method == 'POST':
-        uploaded_file = request.FILES['csv_file']
-        target_column = form.cleaned_data.get('target_column') or None
-        _, ext = os.path.splitext(uploaded_file.name.lower())
-        large_threshold = 50 * 1024 * 1024
+        try:
+            uploaded_file = request.FILES['csv_file']
+            target_column = form.cleaned_data.get('target_column') or None
+            _, ext = os.path.splitext(uploaded_file.name.lower())
+            large_threshold = 50 * 1024 * 1024
 
-        if uploaded_file.size and uploaded_file.size > large_threshold:
-            if ext in ('.xls', '.xlsx'):
+            if uploaded_file.size and uploaded_file.size > large_threshold:
+                if ext in ('.xls', '.xlsx'):
+                    return render(
+                        request,
+                        'analytics/dashboard.html',
+                        _empty_context(
+                            form,
+                            'Large Excel files are not supported. Please convert to CSV and re-upload.',
+                        ),
+                    )
+
                 return render(
                     request,
                     'analytics/dashboard.html',
                     _empty_context(
                         form,
-                        'Large Excel files are not supported. Please convert to CSV and re-upload.',
+                        'This deployment is in no-storage mode. Please upload a CSV under 50 MB, or split a larger file before analyzing.',
                     ),
                 )
 
-            return render(
-                request,
-                'analytics/dashboard.html',
-                _empty_context(
-                    form,
-                    'This deployment is in no-storage mode. Please upload a CSV under 50 MB, or split a larger file before analyzing.',
-                ),
-            )
-        else:
             try:
                 df = read_uploaded_file(uploaded_file)
                 summary = analyze_dataframe(df, target_column)
+                return render(request, 'analytics/dashboard.html', _analysis_context(form, summary))
             except Exception as exc:
                 return render(
                     request,
                     'analytics/dashboard.html',
                     _empty_context(form, f'Failed to analyze file: {exc}'),
                 )
-
-        return render(request, 'analytics/dashboard.html', _analysis_context(form, summary))
+        except Exception as exc:
+            return render(
+                request,
+                'analytics/dashboard.html',
+                _empty_context(form, f'Upload processing failed: {exc}'),
+            )
 
     return render(request, 'analytics/dashboard.html', _empty_context(form))
 

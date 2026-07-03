@@ -55,22 +55,37 @@ def clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     cleaned = df.copy()
     cleaned.columns = [str(col).strip().replace(" ", "_") for col in cleaned.columns]
     cleaned = cleaned.rename(columns=lambda c: c.lower())
-    cleaned = cleaned.apply(lambda col: col.astype(str).str.strip() if col.dtype == "object" else col)
-    cleaned = cleaned.replace({np.nan: None})
-    cleaned = cleaned.drop_duplicates()
 
     for col in cleaned.columns:
-        if cleaned[col].dtype == "object":
-            cleaned[col] = cleaned[col].replace({"": None, "nan": None, "None": None})
-            numeric_candidate = cleaned[col].astype(str).str.replace(",", "", regex=False)
-            converted_numeric = pd.to_numeric(numeric_candidate, errors="coerce")
-            if converted_numeric.notna().mean() >= 0.6:
-                cleaned[col] = converted_numeric
-                continue
+        try:
+            if cleaned[col].dtype == "object":
+                cleaned[col] = cleaned[col].astype(str).str.strip()
+            elif pd.api.types.is_datetime64_any_dtype(cleaned[col]):
+                cleaned[col] = cleaned[col].astype(str).str.strip()
+        except Exception:
+            cleaned[col] = cleaned[col].astype(str)
 
-            converted_date = pd.to_datetime(cleaned[col], errors="coerce")
-            if converted_date.notna().mean() >= 0.8:
-                cleaned[col] = converted_date
+    try:
+        cleaned = cleaned.replace({np.nan: None})
+        cleaned = cleaned.drop_duplicates()
+    except Exception:
+        cleaned = cleaned.fillna(value=None)
+
+    for col in cleaned.columns:
+        try:
+            if cleaned[col].dtype == "object":
+                cleaned[col] = cleaned[col].replace({"": None, "nan": None, "None": None})
+                numeric_candidate = cleaned[col].astype(str).str.replace(",", "", regex=False)
+                converted_numeric = pd.to_numeric(numeric_candidate, errors="coerce")
+                if converted_numeric.notna().mean() >= 0.6:
+                    cleaned[col] = converted_numeric
+                    continue
+
+                converted_date = pd.to_datetime(cleaned[col], errors="coerce")
+                if converted_date.notna().mean() >= 0.8:
+                    cleaned[col] = converted_date
+        except Exception:
+            continue
 
     return cleaned
 
@@ -122,107 +137,141 @@ def build_quality_report(df: pd.DataFrame) -> Dict[str, Any]:
 
 
 def analyze_dataframe(df: pd.DataFrame, target_column: Optional[str] = None) -> Dict[str, Any]:
-    cleaned = clean_dataframe(df)
-    quality = build_quality_report(cleaned)
+    try:
+        cleaned = clean_dataframe(df)
+    except Exception:
+        cleaned = df.copy()
+        cleaned = cleaned.astype(str)
 
-    numeric_columns = [col for col in cleaned.columns if pd.api.types.is_numeric_dtype(cleaned[col])]
-    categorical_columns = [col for col in cleaned.columns if col not in numeric_columns]
-    target_column = choose_prediction_target(cleaned, target_column)
+    try:
+        quality = build_quality_report(cleaned)
+    except Exception:
+        quality = {
+            "quality_score": 0,
+            "null_values": {},
+            "duplicate_rows": 0,
+            "row_count": int(len(cleaned)),
+            "column_count": int(len(cleaned.columns)),
+        }
+
+    try:
+        numeric_columns = [col for col in cleaned.columns if pd.api.types.is_numeric_dtype(cleaned[col])]
+        categorical_columns = [col for col in cleaned.columns if col not in numeric_columns]
+        target_column = choose_prediction_target(cleaned, target_column)
+    except Exception:
+        numeric_columns = []
+        categorical_columns = list(cleaned.columns)
+        target_column = None
 
     kpis = {
         "rows": quality["row_count"],
         "columns": quality["column_count"],
         "duplicates": quality["duplicate_rows"],
-        "missing_values": int(sum(quality["null_values"].values())),
+        "missing_values": int(sum(quality["null_values"].values())) if quality.get("null_values") else 0,
         "quality_score": quality["quality_score"],
     }
 
     insights = []
     chart_data = []
-    if numeric_columns:
-        numeric_summary = cleaned[numeric_columns].describe().to_dict()
-        insights.append(f"Numeric columns detected: {', '.join(numeric_columns[:5])}")
-        if target_column and target_column in numeric_columns:
-            insights.append("Target column available for predictive analysis.")
-        for col in numeric_columns[:6]:
-            series = cleaned[col].dropna()
-            if not series.empty:
-                chart_data.append({"name": col, "value": round(float(series.mean()), 2)})
-    if categorical_columns:
-        insights.append(f"Categorical columns detected: {', '.join(categorical_columns[:5])}")
+    try:
+        if numeric_columns:
+            insights.append(f"Numeric columns detected: {', '.join(numeric_columns[:5])}")
+            if target_column and target_column in numeric_columns:
+                insights.append("Target column available for predictive analysis.")
+            for col in numeric_columns[:6]:
+                series = cleaned[col].dropna()
+                if not series.empty:
+                    chart_data.append({"name": col, "value": round(float(series.mean()), 2)})
+        if categorical_columns:
+            insights.append(f"Categorical columns detected: {', '.join(categorical_columns[:5])}")
+    except Exception:
+        insights.append("Basic inspection completed with fallback handling.")
 
     trend = None
-    if numeric_columns and len(cleaned) > 1:
-        first_numeric = numeric_columns[0]
-        series = pd.to_numeric(cleaned[first_numeric], errors='coerce').dropna()
-        if len(series) > 1:
-            x = list(range(len(series)))
-            y = series.tolist()
-            slope = (sum((xi - sum(x)/len(x)) * (yi - sum(y)/len(y)) for xi, yi in zip(x, y)) /
-                     sum((xi - sum(x)/len(x)) ** 2 for xi in x)) if sum((xi - sum(x)/len(x)) ** 2 for xi in x) else 0
-            trend = "increasing" if slope > 0 else "decreasing" if slope < 0 else "stable"
-            insights.append(f"Trend hint for {first_numeric}: {trend}.")
+    try:
+        if numeric_columns and len(cleaned) > 1:
+            first_numeric = numeric_columns[0]
+            series = pd.to_numeric(cleaned[first_numeric], errors='coerce').dropna()
+            if len(series) > 1:
+                x = list(range(len(series)))
+                y = series.tolist()
+                slope = (sum((xi - sum(x)/len(x)) * (yi - sum(y)/len(y)) for xi, yi in zip(x, y)) /
+                         sum((xi - sum(x)/len(x)) ** 2 for xi in x)) if sum((xi - sum(x)/len(x)) ** 2 for xi in x) else 0
+                trend = "increasing" if slope > 0 else "decreasing" if slope < 0 else "stable"
+                insights.append(f"Trend hint for {first_numeric}: {trend}.")
+    except Exception:
+        trend = None
 
     correlation = None
-    if len(numeric_columns) >= 2:
-        corr_cols = numeric_columns[:10]
-        corr_matrix = cleaned[corr_cols].corr(numeric_only=True)
-        corr_matrix = corr_matrix.fillna(0)
-        correlation = corr_matrix.to_dict()
-        if len(numeric_columns) > 10:
-            insights.append(
-                "Correlation computed for first 10 numeric columns only to preserve performance."
-            )
+    try:
+        if len(numeric_columns) >= 2:
+            corr_cols = numeric_columns[:10]
+            corr_matrix = cleaned[corr_cols].corr(numeric_only=True)
+            corr_matrix = corr_matrix.fillna(0)
+            correlation = corr_matrix.to_dict()
+            if len(numeric_columns) > 10:
+                insights.append(
+                    "Correlation computed for first 10 numeric columns only to preserve performance."
+                )
+    except Exception:
+        correlation = None
 
     prediction = None
-    if target_column and target_column in cleaned.columns and pd.api.types.is_numeric_dtype(cleaned[target_column]):
-        feature_frame = cleaned.select_dtypes(include=[np.number]).drop(columns=[target_column], errors="ignore")
-        if not feature_frame.empty and len(feature_frame.dropna()) > 5:
-            model_df = cleaned[[target_column] + list(feature_frame.columns)].dropna()
-            X = model_df[feature_frame.columns]
-            y = model_df[target_column]
-            if len(model_df) >= 8:
-                X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-                model = LinearRegression()
-                model.fit(X_train, y_train)
-                preds = model.predict(X_test)
-                mse = mean_squared_error(y_test, preds)
-                prediction = {
-                    "model": "LinearRegression",
-                    "target": target_column,
-                    "features": list(feature_frame.columns)[:8],
-                    "mse": round(float(mse), 4),
-                    "sample_prediction": round(float(preds[0]), 4) if len(preds) else None,
-                    "r2_hint": "Model trained with available numeric features.",
-                }
+    try:
+        if target_column and target_column in cleaned.columns and pd.api.types.is_numeric_dtype(cleaned[target_column]):
+            feature_frame = cleaned.select_dtypes(include=[np.number]).drop(columns=[target_column], errors="ignore")
+            if not feature_frame.empty and len(feature_frame.dropna()) > 5:
+                model_df = cleaned[[target_column] + list(feature_frame.columns)].dropna()
+                X = model_df[feature_frame.columns]
+                y = model_df[target_column]
+                if len(model_df) >= 8:
+                    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+                    model = LinearRegression()
+                    model.fit(X_train, y_train)
+                    preds = model.predict(X_test)
+                    mse = mean_squared_error(y_test, preds)
+                    prediction = {
+                        "model": "LinearRegression",
+                        "target": target_column,
+                        "features": list(feature_frame.columns)[:8],
+                        "mse": round(float(mse), 4),
+                        "sample_prediction": round(float(preds[0]), 4) if len(preds) else None,
+                        "r2_hint": "Model trained with available numeric features.",
+                    }
+    except Exception:
+        prediction = None
 
-    weaknesses = detect_dataset_weaknesses(
-        {
-            "quality_report": quality,
-            "numeric_columns": numeric_columns,
-            "categorical_columns": categorical_columns,
-            "trend": trend,
-            "correlation": correlation,
-            "quality_score": quality["quality_score"],
-            "target_column": target_column,
-        },
-        cleaned,
-        target_column,
-    )
-    recommendations = generate_recommendations(
-        {
-            "quality_report": quality,
-            "numeric_columns": numeric_columns,
-            "categorical_columns": categorical_columns,
-            "trend": trend,
-            "correlation": correlation,
-            "quality_score": quality["quality_score"],
-            "target_column": target_column,
-            "weaknesses": weaknesses,
-        },
-        cleaned,
-        target_column,
-    )
+    try:
+        weaknesses = detect_dataset_weaknesses(
+            {
+                "quality_report": quality,
+                "numeric_columns": numeric_columns,
+                "categorical_columns": categorical_columns,
+                "trend": trend,
+                "correlation": correlation,
+                "quality_score": quality["quality_score"],
+                "target_column": target_column,
+            },
+            cleaned,
+            target_column,
+        )
+        recommendations = generate_recommendations(
+            {
+                "quality_report": quality,
+                "numeric_columns": numeric_columns,
+                "categorical_columns": categorical_columns,
+                "trend": trend,
+                "correlation": correlation,
+                "quality_score": quality["quality_score"],
+                "target_column": target_column,
+                "weaknesses": weaknesses,
+            },
+            cleaned,
+            target_column,
+        )
+    except Exception as exc:
+        weaknesses = [f"Basic review completed with fallback handling: {exc}"]
+        recommendations = ["Review the uploaded data carefully and clean obvious missing or duplicate values."]
 
     return {
         "cleaned_df": cleaned,
@@ -409,62 +458,62 @@ def generate_chart_data(df: pd.DataFrame, numeric_columns: List[str]) -> Dict[st
     if not numeric_columns:
         return chart_data
 
-    # Use the first numeric column for trend analysis
-    first_numeric = numeric_columns[0]
-    series = pd.to_numeric(df[first_numeric], errors='coerce').dropna()
-    if not series.empty:
-        max_points = 200
-        if len(series) > max_points:
-            indices = np.linspace(0, len(series) - 1, max_points, dtype=int)
-            sample_series = series.iloc[indices]
-            labels = [str(i + 1) for i in indices]
-        else:
-            sample_series = series
-            labels = [str(i + 1) for i in range(len(series))]
+    try:
+        first_numeric = numeric_columns[0]
+        series = pd.to_numeric(df[first_numeric], errors='coerce').dropna()
+        if not series.empty:
+            max_points = 200
+            if len(series) > max_points:
+                indices = np.linspace(0, len(series) - 1, max_points, dtype=int)
+                sample_series = series.iloc[indices]
+                labels = [str(i + 1) for i in indices]
+            else:
+                sample_series = series
+                labels = [str(i + 1) for i in range(len(series))]
 
-        chart_data['trend'] = {
-            'type': 'line',
-            'labels': labels,
-            'datasets': [
-                {
-                    'label': f'{first_numeric} Trend',
-                    'data': [float(v) for v in sample_series.tolist()],
-                    'borderColor': '#2563eb',
-                    'backgroundColor': 'rgba(37, 99, 235, 0.2)',
-                    'fill': True,
-                }
-            ],
-        }
+            chart_data['trend'] = {
+                'type': 'line',
+                'labels': labels,
+                'datasets': [
+                    {
+                        'label': f'{first_numeric} Trend',
+                        'data': [float(v) for v in sample_series.tolist()],
+                        'borderColor': '#2563eb',
+                        'backgroundColor': 'rgba(37, 99, 235, 0.2)',
+                        'fill': True,
+                    }
+                ],
+            }
 
-    # Histogram for first up to 3 numeric columns
-    hist_labels = []
-    hist_values = []
-    for col in numeric_columns[:3]:
-        series = pd.to_numeric(df[col], errors='coerce').dropna()
-        if series.empty:
-            continue
-        hist_labels.append(col)
-        hist_values.append(float(series.mean()))
-    if hist_labels and hist_values:
-        chart_data['summary'] = {
-            'type': 'bar',
-            'labels': hist_labels,
-            'datasets': [
-                {
-                    'label': 'Average value',
-                    'data': hist_values,
-                    'backgroundColor': ['#2563eb', '#10b981', '#f59e0b'][:len(hist_values)],
-                }
-            ],
-        }
+        hist_labels = []
+        hist_values = []
+        for col in numeric_columns[:3]:
+            series = pd.to_numeric(df[col], errors='coerce').dropna()
+            if series.empty:
+                continue
+            hist_labels.append(col)
+            hist_values.append(float(series.mean()))
+        if hist_labels and hist_values:
+            chart_data['summary'] = {
+                'type': 'bar',
+                'labels': hist_labels,
+                'datasets': [
+                    {
+                        'label': 'Average value',
+                        'data': hist_values,
+                        'backgroundColor': ['#2563eb', '#10b981', '#f59e0b'][:len(hist_values)],
+                    }
+                ],
+            }
 
-    # Correlation matrix as a heatmap-like dataset for Chart.js
-    if len(numeric_columns) >= 2:
-        corr = df[numeric_columns].corr(numeric_only=True).fillna(0)
-        chart_data['correlation'] = {
-            'labels': list(corr.columns),
-            'matrix': corr.round(2).to_dict(),
-        }
+        if len(numeric_columns) >= 2:
+            corr = df[numeric_columns].corr(numeric_only=True).fillna(0)
+            chart_data['correlation'] = {
+                'labels': list(corr.columns),
+                'matrix': corr.round(2).to_dict(),
+            }
+    except Exception:
+        return {}
 
     return chart_data
 
@@ -568,57 +617,61 @@ def generate_recommendations(summary: Dict[str, Any], df: pd.DataFrame, target: 
 def compute_business_metrics(summary: Dict[str, Any], df: pd.DataFrame) -> Dict[str, Any]:
     """Compute business-facing KPIs like sales rating and product performance."""
     metrics: Dict[str, Any] = {}
-    q_score = summary.get('quality_score', 0)
-    trend = summary.get('trend')
+    try:
+        q_score = summary.get('quality_score', 0)
+        trend = summary.get('trend')
 
-    # Heuristic: detect sales/revenue column
-    sales_col = None
-    for candidate in ['sales', 'revenue', 'amount', 'total']:
-        if candidate in df.columns:
-            sales_col = candidate
-            break
+        sales_col = None
+        for candidate in ['sales', 'revenue', 'amount', 'total']:
+            if candidate in df.columns:
+                sales_col = candidate
+                break
 
-    avg_sales = None
-    if sales_col:
-        series = pd.to_numeric(df[sales_col], errors='coerce').dropna()
-        if not series.empty:
-            avg_sales = float(series.mean())
+        avg_sales = None
+        if sales_col:
+            series = pd.to_numeric(df[sales_col], errors='coerce').dropna()
+            if not series.empty:
+                avg_sales = float(series.mean())
 
-    # Sales rating heuristic
-    rating = 'N/A'
-    if avg_sales is not None:
-        if q_score >= 75 and trend == 'increasing' and avg_sales > 0:
-            rating = 'Excellent'
-        elif q_score >= 50 and avg_sales > 0:
-            rating = 'Good'
-        else:
-            rating = 'Poor'
-    metrics['sales_rating'] = rating
-    metrics['avg_sales'] = avg_sales
+        rating = 'N/A'
+        if avg_sales is not None:
+            if q_score >= 75 and trend == 'increasing' and avg_sales > 0:
+                rating = 'Excellent'
+            elif q_score >= 50 and avg_sales > 0:
+                rating = 'Good'
+            else:
+                rating = 'Poor'
+        metrics['sales_rating'] = rating
+        metrics['avg_sales'] = avg_sales
 
-    # Product performance: find product column and rank by revenue or sales
-    product_col = None
-    for candidate in ['product', 'product_name', 'product_id', 'sku']:
-        if candidate in df.columns:
-            product_col = candidate
-            break
+        product_col = None
+        for candidate in ['product', 'product_name', 'product_id', 'sku']:
+            if candidate in df.columns:
+                product_col = candidate
+                break
 
-    top_products: List[Dict[str, Any]] = []
-    if product_col and sales_col:
-        gp = df[[product_col, sales_col]].dropna()
-        try:
-            gp[sales_col] = pd.to_numeric(gp[sales_col], errors='coerce')
-            agg = gp.groupby(product_col)[sales_col].sum().sort_values(ascending=False).head(5)
-            top_products = [{'product': idx, 'value': float(val)} for idx, val in agg.items()]
-        except Exception:
-            top_products = []
-    metrics['top_products'] = top_products
+        top_products: List[Dict[str, Any]] = []
+        if product_col and sales_col:
+            gp = df[[product_col, sales_col]].dropna()
+            try:
+                gp[sales_col] = pd.to_numeric(gp[sales_col], errors='coerce')
+                agg = gp.groupby(product_col)[sales_col].sum().sort_values(ascending=False).head(5)
+                top_products = [{'product': idx, 'value': float(val)} for idx, val in agg.items()]
+            except Exception:
+                top_products = []
+        metrics['top_products'] = top_products
 
-    # Product performance score
-    perf_score = 0
-    if top_products:
-        perf_score = min(100, int(sum(p['value'] for p in top_products) / (len(top_products) * (abs(metrics.get('avg_sales') or 1))) * 10))
-    metrics['product_performance_score'] = perf_score
+        perf_score = 0
+        if top_products:
+            perf_score = min(100, int(sum(p['value'] for p in top_products) / (len(top_products) * (abs(metrics.get('avg_sales') or 1))) * 10))
+        metrics['product_performance_score'] = perf_score
+    except Exception:
+        metrics = {
+            'sales_rating': 'N/A',
+            'avg_sales': None,
+            'top_products': [],
+            'product_performance_score': 0,
+        }
 
     return metrics
 
