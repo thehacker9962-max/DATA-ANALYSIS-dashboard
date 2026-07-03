@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 from typing import Any, Dict, List, Optional
@@ -9,6 +10,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 
 from io import BytesIO
+
+logger = logging.getLogger(__name__)
 
 
 def make_json_safe(value: Any) -> Any:
@@ -302,20 +305,30 @@ def read_uploaded_file(uploaded_file) -> pd.DataFrame:
         "application/vnd.ms-excel",
     }
 
-    if filename.endswith((".xls", ".xlsx")) or uploaded_file.content_type in excel_mime_types:
-        uploaded_file.seek(0)
-        return pd.read_excel(uploaded_file)
-
     uploaded_file.seek(0)
-    try:
-        return pd.read_csv(uploaded_file)
-    except UnicodeDecodeError:
-        uploaded_file.seek(0)
+    raw_bytes = uploaded_file.read()
+    uploaded_file.seek(0)
+
+    if filename.endswith((".xls", ".xlsx")) or uploaded_file.content_type in excel_mime_types:
         try:
-            return pd.read_excel(uploaded_file)
-        except Exception:
+            return pd.read_excel(BytesIO(raw_bytes))
+        except Exception as exc:
+            logger.exception("Excel upload parsing failed", exc_info=exc)
+            raise
+
+    for encoding in ["utf-8-sig", "utf-8", "latin1", "cp1252"]:
+        try:
             uploaded_file.seek(0)
-            return pd.read_csv(uploaded_file, encoding="latin1", engine="python")
+            return pd.read_csv(BytesIO(raw_bytes), encoding=encoding, engine="python")
+        except Exception:
+            continue
+
+    try:
+        uploaded_file.seek(0)
+        return pd.read_csv(BytesIO(raw_bytes), sep=None, engine="python")
+    except Exception as exc:
+        logger.exception("CSV upload parsing failed", exc_info=exc)
+        raise
 
 
 def save_uploaded_to_disk(uploaded_file) -> str:
